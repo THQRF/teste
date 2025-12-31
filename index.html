@@ -2,166 +2,116 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Cubo Multiartista Online</title>
+    <title>Cubo Multiartista Online - Corrigido</title>
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/photon-web-sdk@4.1.0/dist/photon-sdk-js.min.js"></script>
+    
     <script src="config.js"></script>
 
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #111; }
-        canvas { display: block; }
-        
-        #gui { position: absolute; top: 10px; left: 10px; pointer-events: none; z-index: 10; color: white; }
-        #status-bar { 
-            background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px; 
-            border-left: 5px solid #ff0000; pointer-events: auto;
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        #status-display {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.8); color: #0f0;
+            padding: 10px; border-radius: 5px; z-index: 100;
+            border: 1px solid #444;
         }
-        #instructions { margin-top: 10px; font-size: 12px; color: #aaa; }
     </style>
 </head>
 <body>
 
-    <div id="gui">
-        <div id="status-bar">Status: Inicializando...</div>
-        <div id="instructions">Use WASD para mover | F12 para ver erros</div>
-    </div>
+    <div id="status-display">Status: Verificando bibliotecas...</div>
 
     <script>
-    // Variáveis Globais
     let scene, camera, renderer, myCube;
     let client;
     let otherPlayers = {};
     const keys = {};
 
-    // --- 1. CONFIGURAÇÃO DO MUNDO 3D (Three.js) ---
     function initThree() {
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x1a1a1a);
-        
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 5, 10);
-
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Iluminação
-        const ambient = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambient);
-        const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-        sun.position.set(5, 10, 5);
-        scene.add(sun);
+        // Luz e Chão
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        scene.add(new THREE.GridHelper(50, 50));
 
-        // Chão (Grid)
-        const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
-        scene.add(grid);
-
-        // Meu Cubo (Verde)
-        const geometry = new THREE.BoxGeometry(1, 1, 1);
-        const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-        myCube = new THREE.Mesh(geometry, material);
-        myCube.position.y = 0.5;
+        // Meu Personagem
+        myCube = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+        );
         scene.add(myCube);
-
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+        camera.position.set(0, 5, 10);
     }
 
-    // --- 2. CONFIGURAÇÃO DA REDE (Photon) ---
     function initPhoton() {
-        const statusDisp = document.getElementById('status-bar');
+        const statusText = document.getElementById('status-display');
 
+        // VERIFICAÇÃO CRUCIAL: Se o Photon não carregou, ele avisa aqui em vez de dar erro no console
         if (typeof Photon === 'undefined') {
-            statusDisp.innerText = "ERRO: Biblioteca Photon não carregada!";
-            statusDisp.style.borderColor = "red";
+            statusText.innerText = "ERRO: Biblioteca Photon não encontrada!";
+            statusText.style.color = "red";
             return;
         }
 
-        // Criar o cliente Photon
         client = new Photon.LoadBalancing.LoadBalancingClient(
             Photon.ConnectionProtocol.Wss, 
             SERVER_CONFIG.APP_ID, 
             SERVER_CONFIG.APP_VERSION
         );
 
-        // Monitorar mudanças de estado
         client.onStateChange = (state) => {
-            const stateName = Photon.LoadBalancing.Handlers.StateToName(state);
-            statusDisp.innerText = "Status: " + stateName;
-            
+            statusText.innerText = "Status: " + Photon.LoadBalancing.Handlers.StateToName(state);
             if (state === Photon.LoadBalancing.LoadBalancingClient.State.ConnectedToMaster) {
-                statusDisp.style.borderColor = "yellow";
                 client.joinOrCreateRoom("SalaPrincipal");
-            }
-            if (state === Photon.LoadBalancing.LoadBalancingClient.State.Joined) {
-                statusDisp.style.borderColor = "#00ff00";
-                statusDisp.innerText = "Status: Online na Sala";
             }
         };
 
-        // Receber dados de outros jogadores
+        // Receber movimento dos outros
         client.onEvent = (code, content, actorNr) => {
-            if (code === 2) { // Evento de Movimento
+            if (code === 2) {
                 if (!otherPlayers[actorNr]) {
-                    const geometry = new THREE.BoxGeometry(1, 1, 1);
-                    const material = new THREE.MeshStandardMaterial({ color: 0xff00ff }); // Outros são Rosa
-                    const newCube = new THREE.Mesh(geometry, material);
-                    newCube.position.y = 0.5;
-                    scene.add(newCube);
-                    otherPlayers[actorNr] = newCube;
+                    otherPlayers[actorNr] = new THREE.Mesh(
+                        new THREE.BoxGeometry(1, 1, 1),
+                        new THREE.MeshStandardMaterial({ color: 0xff00ff })
+                    );
+                    scene.add(otherPlayers[actorNr]);
                 }
                 otherPlayers[actorNr].position.set(content.x, content.y, content.z);
             }
         };
 
-        // Conectar
-        try {
-            client.connectToRegionMaster(SERVER_CONFIG.REGION);
-        } catch (e) {
-            statusDisp.innerText = "Erro ao conectar: " + e.message;
-        }
+        client.connectToRegionMaster(SERVER_CONFIG.REGION);
     }
 
-    // --- 3. LOOP DE ATUALIZAÇÃO ---
     function animate() {
         requestAnimationFrame(animate);
-
-        const speed = 0.15;
+        
+        // Movimentação básica
+        const speed = 0.1;
         let moved = false;
+        if(keys['w']) { myCube.position.z -= speed; moved = true; }
+        if(keys['s']) { myCube.position.z += speed; moved = true; }
+        if(keys['a']) { myCube.position.x -= speed; moved = true; }
+        if(keys['d']) { myCube.position.x += speed; moved = true; }
 
-        // Movimentação Local
-        if (keys['w']) { myCube.position.z -= speed; moved = true; }
-        if (keys['s']) { myCube.position.z += speed; moved = true; }
-        if (keys['a']) { myCube.position.x -= speed; moved = true; }
-        if (keys['d']) { myCube.position.x += speed; moved = true; }
-
-        // Enviar Posição via Photon
-        if (moved && client && client.isJoinedToRoom()) {
-            client.raiseEvent(2, { 
-                x: myCube.position.x, 
-                y: myCube.position.y, 
-                z: myCube.position.z 
-            });
+        if(moved && client && client.isJoinedToRoom()) {
+            client.raiseEvent(2, { x: myCube.position.x, y: myCube.position.y, z: myCube.position.z });
         }
 
-        // Câmera segue o cubo suavemente
-        const offset = new THREE.Vector3(0, 5, 8);
-        const targetPos = myCube.position.clone().add(offset);
-        camera.position.lerp(targetPos, 0.1);
         camera.lookAt(myCube.position);
-
         renderer.render(scene, camera);
     }
 
-    // Eventos de Teclado
     window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
     window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
 
-    // INICIALIZAÇÃO AO CARREGAR PÁGINA
+    // INICIAR TUDO APENAS QUANDO A PÁGINA ESTIVER PRONTA
     window.onload = () => {
         initThree();
         initPhoton();
