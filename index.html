@@ -1,228 +1,157 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Cubo Multiartista Online</title>
+    <title>Cubo Multiartista Online - Corrigido</title>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/photon-web-sdk@4.1.0/dist/photon-sdk-js.min.js"></script>
     <script src="config.js"></script>
+
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #111; }
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #000; }
         canvas { display: block; }
-        
-        /* UI de Camada Superior */
-        #gui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        
-        /* Menu de Pintura Lateral */
-        #paint-menu {
-            position: absolute; left: -300px; top: 0; width: 280px; height: 100%;
-            background: rgba(20, 20, 20, 0.95); color: white; padding: 20px;
-            transition: 0.5s; pointer-events: auto; border-right: 2px solid #444;
+        #gui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        #status-bar { 
+            position: absolute; top: 10px; right: 10px; 
+            background: rgba(0,0,0,0.7); color: #0f0; padding: 10px; border-radius: 5px;
+            pointer-events: auto; font-family: monospace;
         }
-        #paint-menu.open { left: 0; }
-        
-        .btn-toggle-menu {
-            position: absolute; top: 20px; left: 300px; padding: 10px;
-            background: #444; color: white; border: none; cursor: pointer; pointer-events: auto;
-        }
-
-        /* Chat */
         #chat-container {
-            position: absolute; bottom: 20px; right: 20px; width: 300px;
-            background: rgba(0,0,0,0.6); border-radius: 10px; pointer-events: auto;
+            position: absolute; bottom: 20px; left: 20px;
+            width: 300px; height: 200px; background: rgba(0,0,0,0.5);
+            color: white; padding: 10px; overflow-y: auto; pointer-events: auto;
         }
-        #messages { height: 150px; overflow-y: auto; padding: 10px; color: #fff; font-size: 14px; }
-        #chat-input { width: 100%; padding: 10px; border: none; background: #222; color: white; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
-
-        .controls-hint { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: #666; font-size: 12px; }
     </style>
 </head>
 <body>
 
-<div id="gui">
-    <div class="controls-hint">WASD para andar | Tecla E para abrir Menu de Pintura</div>
-
-    <div id="paint-menu">
-        <h2>Customizar Cubo</h2>
-        <p>Pinte clicando no seu cubo 3D</p>
-        <label>Cor do Pincel:</label><br>
-        <input type="color" id="brush-color" value="#00ff00" style="width:100%; height:40px;"><br><br>
-        
-        <label>Tamanho:</label>
-        <input type="range" id="brush-size" min="5" max="50" value="15" style="width:100%;"><br><br>
-        
-        <button onclick="saveTexture()" style="width:100%; padding:10px; background:#28a745; color:white; border:none; margin-bottom:5px;">Salvar Textura</button>
-        <button onclick="loadTexture()" style="width:100%; padding:10px; background:#007bff; color:white; border:none;">Carregar Salva</button>
-        
-        <hr>
-        <button onclick="toggleMusic()" style="width:100%; padding:10px;">Alternar Música 🎵</button>
-        <p style="font-size: 10px; color: #888;">Ao fechar o menu, seu cubo será atualizado para os outros jogadores.</p>
+    <div id="gui">
+        <div id="status-bar">Status: Desconectado</div>
+        <div id="chat-container" id="chat">
+            <div id="messages"></div>
+        </div>
     </div>
 
-    <div id="chat-container">
-        <div id="messages"></div>
-        <input type="text" id="chat-input" placeholder="Pressione Enter para falar...">
-    </div>
-</div>
-
-<audio id="bg-music" loop src="https://cdn.pixabay.com/download/audio/2022/05/27/audio_1808fbf07a.mp3"></audio>
-
-<script>
-    // --- LÓGICA DO PHOTON (MULTIPLAYER) ---
+    <script>
+    // Variáveis Globais
+    let scene, camera, renderer, myCube;
     let client;
     let otherPlayers = {};
+    const keys = {};
 
-    function initPhoton() {
-        client = new Photon.LoadBalancing.LoadBalancingClient(Photon.ConnectionProtocol.Wss, SERVER_CONFIG.APP_ID, SERVER_CONFIG.APP_VERSION);
+    // 1. INICIALIZAÇÃO DO THREE.JS (O Cenário)
+    function initThree() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
         
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Luzes
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 10, 7);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        // Chão de Grade
+        const grid = new THREE.GridHelper(100, 100, 0x444444, 0x222222);
+        scene.add(grid);
+
+        // O Meu Cubo
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+        myCube = new THREE.Mesh(geometry, material);
+        scene.add(myCube);
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    }
+
+    // 2. INICIALIZAÇÃO DO PHOTON (A Rede)
+    function initPhoton() {
+        const statusDisp = document.getElementById('status-bar');
+
+        if (typeof Photon === 'undefined') {
+            statusDisp.style.color = 'red';
+            statusDisp.innerText = "Erro: Biblioteca Photon não carregada!";
+            return;
+        }
+
+        client = new Photon.LoadBalancing.LoadBalancingClient(
+            Photon.ConnectionProtocol.Wss, 
+            SERVER_CONFIG.APP_ID, 
+            SERVER_CONFIG.APP_VERSION
+        );
+
         client.onStateChange = (state) => {
-            if (state === Photon.LoadBalancing.LoadBalancingClient.State.JoinedLobby) client.joinRandomRoom();
+            statusDisp.innerText = "Status: " + Photon.LoadBalancing.Handlers.StateToName(state);
+            if (state === Photon.LoadBalancing.LoadBalancingClient.State.ConnectedToMaster) {
+                client.joinOrCreateRoom("SalaPrincipal");
+            }
         };
 
+        // Evento para receber movimento de outros
         client.onEvent = (code, content, actorNr) => {
-            if (code === 1) addChatMessage("Jogador " + actorNr, content.m);
-            if (code === 2) updateOtherPlayer(actorNr, content); // Posição
-        };
-
-        client.onActorJoin = (actor) => addChatMessage("Sistema", "Jogador " + actor.actorNr + " entrou.");
-        client.onActorLeave = (actor) => {
-            scene.remove(otherPlayers[actor.actorNr]);
-            delete otherPlayers[actor.actorNr];
+            if (code === 2) { // Evento de posição
+                if (!otherPlayers[actorNr]) {
+                    const geometry = new THREE.BoxGeometry(1, 1, 1);
+                    const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+                    otherPlayers[actorNr] = new THREE.Mesh(geometry, material);
+                    scene.add(otherPlayers[actorNr]);
+                }
+                otherPlayers[actorNr].position.set(content.x, content.y, content.z);
+            }
         };
 
         client.connectToRegionMaster(SERVER_CONFIG.REGION);
     }
 
-    // --- LÓGICA 3D (THREE.JS) ---
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111111);
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    // Chão
-    const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
-    scene.add(grid);
-
-    // Meu Cubo e Textura
-    const paintCanvas = document.createElement('canvas');
-    paintCanvas.width = paintCanvas.height = 512;
-    const pCtx = paintCanvas.getContext('2d');
-    pCtx.fillStyle = 'white'; pCtx.fillRect(0,0,512,512);
-    const cubeTex = new THREE.CanvasTexture(paintCanvas);
-    
-    const myCube = new THREE.Mesh(
-        new THREE.BoxGeometry(1, 1, 1),
-        new THREE.MeshStandardMaterial({ map: cubeTex })
-    );
-    myCube.position.y = 0.5;
-    scene.add(myCube);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-
-    camera.position.set(0, 3, 5);
-    camera.lookAt(myCube.position);
-
-    // Controles
-    const keys = {};
-    let menuOpen = false;
-    window.onkeydown = (e) => { 
-        keys[e.key.toLowerCase()] = true;
-        if(e.key.toLowerCase() === 'e') toggleMenu();
-        if(e.key === 'Enter') {
-            const input = document.getElementById('chat-input');
-            if(document.activeElement === input) sendMsg(); else input.focus();
-        }
-    };
-    window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
-
-    function toggleMenu() {
-        menuOpen = !menuOpen;
-        document.getElementById('paint-menu').classList.toggle('open', menuOpen);
-    }
-
-    // Sistema de Pintura
-    let isDrawing = false;
-    window.onmousedown = (e) => { if(menuOpen) isDrawing = true; };
-    window.onmouseup = () => isDrawing = false;
-    window.onmousemove = (e) => {
-        if(!isDrawing || !menuOpen) return;
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObject(myCube);
-        if(intersects.length > 0) {
-            const uv = intersects[0].uv;
-            pCtx.fillStyle = document.getElementById('brush-color').value;
-            const size = document.getElementById('brush-size').value;
-            pCtx.beginPath();
-            pCtx.arc(uv.x * 512, (1 - uv.y) * 512, size/2, 0, Math.PI*2);
-            pCtx.fill();
-            cubeTex.needsUpdate = true;
-        }
-    };
-
-    // Online: Outros Jogadores
-    function updateOtherPlayer(id, data) {
-        if(!otherPlayers[id]) {
-            otherPlayers[id] = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({color: 0x555555}));
-            scene.add(otherPlayers[id]);
-        }
-        otherPlayers[id].position.set(data.x, data.y, data.z);
-    }
-
-    function sendMsg() {
-        const input = document.getElementById('chat-input');
-        if(input.value.trim() && client && client.isJoinedToRoom()) {
-            client.raiseEvent(1, { m: input.value });
-            addChatMessage("Você", input.value);
-            input.value = "";
-        }
-    }
-
-    function addChatMessage(user, text) {
-        const msgDiv = document.getElementById('messages');
-        msgDiv.innerHTML += `<p><strong>${user}:</strong> ${text}</p>`;
-        msgDiv.scrollTop = msgDiv.scrollHeight;
-    }
-
-    function saveTexture() { localStorage.setItem('cubeskin', paintCanvas.toDataURL()); }
-    function loadTexture() {
-        const data = localStorage.getItem('cubeskin');
-        if(data) { const img = new Image(); img.onload = () => { pCtx.drawImage(img,0,0); cubeTex.needsUpdate=true; }; img.src = data; }
-    }
-
-    function toggleMusic() {
-        const audio = document.getElementById('bg-music');
-        audio.paused ? audio.play() : audio.pause();
-    }
-
-    // Loop Principal
+    // 3. LOOP DE ANIMAÇÃO E MOVIMENTO
     function animate() {
         requestAnimationFrame(animate);
-        
-        if(!menuOpen) {
-            const speed = 0.1;
-            if(keys['w']) myCube.position.z -= speed;
-            if(keys['s']) myCube.position.z += speed;
-            if(keys['a']) myCube.position.x -= speed;
-            if(keys['d']) myCube.position.x += speed;
-            
-            // Enviar posição para outros jogadores
-            if(client && client.isJoinedToRoom()) {
-                client.raiseEvent(2, { x: myCube.position.x, y: myCube.position.y, z: myCube.position.z });
-            }
+
+        const speed = 0.1;
+        let moved = false;
+
+        if (keys['w']) { myCube.position.z -= speed; moved = true; }
+        if (keys['s']) { myCube.position.z += speed; moved = true; }
+        if (keys['a']) { myCube.position.x -= speed; moved = true; }
+        if (keys['d']) { myCube.position.x += speed; moved = true; }
+
+        if (moved && client && client.isJoinedToRoom()) {
+            client.raiseEvent(2, { 
+                x: myCube.position.x, 
+                y: myCube.position.y, 
+                z: myCube.position.z 
+            });
         }
 
-        camera.position.lerp(new THREE.Vector3(myCube.position.x, myCube.position.y + 3, myCube.position.z + 5), 0.1);
+        // Suavizar câmera atrás do cubo
+        const targetCam = new THREE.Vector3(myCube.position.x, myCube.position.y + 5, myCube.position.z + 10);
+        camera.position.lerp(targetCam, 0.1);
         camera.lookAt(myCube.position);
 
-        if(client) client.service();
         renderer.render(scene, camera);
     }
 
-    initPhoton();
-    animate();
-</script>
+    // CONTROLES
+    window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+    // INÍCIO DE TUDO
+    window.onload = () => {
+        initThree();
+        initPhoton();
+        animate();
+    };
+    </script>
 </body>
 </html>
