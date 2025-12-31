@@ -3,3 +3,4 @@ const SERVER_CONFIG = {
     APP_VERSION: "1.0",
     REGION: "sa", // 'sa' para Brasil
 };
+
